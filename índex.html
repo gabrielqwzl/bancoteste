@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Base de Conhecimento / Banco de Documentos</title>
+    <!-- Carrega Tailwind CSS para estilização -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Carrega Lucide Icons para ícones modernos -->
+    <script type="module" src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Define a fonte Inter e cores base do Tailwind */
+        :root {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Estilos personalizados para o layout */
+        .container-main {
+            min-height: 100vh;
+        }
+        .scroll-area {
+            max-height: calc(100vh - 180px); /* Ajusta para caber na tela mobile/desktop */
+            overflow-y: auto;
+        }
+        /* Estilo para acordeão de Clientes */
+        .client-header {
+            transition: background-color 0.2s;
+        }
+        .client-header:hover {
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container-main p-4 sm:p-8">
+        <!-- Cabeçalho -->
+        <header class="mb-6 pb-4 border-b border-indigo-200">
+            <div class="flex items-center justify-between">
+                <h1 class="text-3xl font-extrabold text-indigo-700 flex items-center">
+                    <i data-lucide="book-open-check" class="w-8 h-8 mr-2 text-indigo-500"></i>
+                    Base de Conhecimento
+                </h1>
+                <button id="addClientBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-xl shadow-lg transition duration-150 flex items-center">
+                    <i data-lucide="plus-circle" class="w-5 h-5 mr-1"></i>
+                    Novo Cliente
+                </button>
+            </div>
+            <p class="text-sm text-gray-500 mt-1">Organize informações de Servidores (Proxmox, Pfsense, Balança/PCPonto) por Cliente e Loja.</p>
+        </header>
+
+        <!-- Área Principal de Conteúdo -->
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Lista de Clientes (Coluna Esquerda) -->
+            <div class="lg:col-span-1 bg-white p-4 rounded-xl shadow-lg border border-indigo-100">
+                <h2 class="text-xl font-bold text-indigo-600 mb-4 flex items-center">
+                    <i data-lucide="users" class="w-5 h-5 mr-2"></i>
+                    Clientes Cadastrados
+                </h2>
+                <div id="clientsList" class="space-y-3 scroll-area">
+                    <!-- Clientes serão renderizados aqui -->
+                    <p id="loadingIndicator" class="text-center text-gray-400">Carregando dados...</p>
+                    <p id="emptyMessage" class="hidden text-center text-gray-400">Nenhum cliente cadastrado. Adicione um para começar!</p>
+                </div>
+                <div id="authStatus" class="mt-4 text-xs text-center text-gray-500"></div>
+                <div id="userIdDisplay" class="mt-2 text-xs text-center text-gray-400 truncate"></div>
+            </div>
+
+            <!-- Detalhes do Cliente/Loja Selecionado (Coluna Direita/Centro) -->
+            <div class="lg:col-span-2">
+                <div id="storeDetailsContainer" class="bg-white p-6 rounded-xl shadow-lg border border-indigo-100 hidden">
+                    <!-- Título do Cliente Selecionado -->
+                    <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
+                        <h2 id="clientNameDisplay" class="text-2xl font-bold text-gray-700"></h2>
+                        <button id="addStoreBtn" class="bg-green-500 hover:bg-green-600 text-white font-medium py-1 px-3 rounded-lg text-sm shadow transition duration-150 flex items-center">
+                            <i data-lucide="building-2" class="w-4 h-4 mr-1"></i>
+                            Adicionar Loja
+                        </button>
+                    </div>
+
+                    <!-- Lista de Lojas -->
+                    <div id="storesListContainer" class="space-y-6">
+                        <!-- Lojas e seus detalhes serão renderizados aqui -->
+                    </div>
+                </div>
+
+                <div id="initialMessage" class="h-full flex flex-col items-center justify-center p-12 bg-white rounded-xl shadow-lg border border-indigo-100 text-center">
+                    <i data-lucide="arrow-left-circle" class="w-16 h-16 text-indigo-300 mb-4"></i>
+                    <p class="text-xl font-semibold text-gray-500">Selecione um cliente ao lado para ver ou editar seus documentos.</p>
+                </div>
+            </div>
+
+        </main>
+
+        <!-- Modal Genérico para Adição/Edição -->
+        <div id="modalOverlay" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center p-4 z-50">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6 transform transition-all duration-300 scale-95 opacity-0" id="modalContent">
+                <h3 id="modalTitle" class="text-xl font-bold mb-4 text-indigo-600 border-b pb-2">Título do Modal</h3>
+                <form id="modalForm" class="space-y-4">
+                    <!-- Conteúdo do formulário será injetado aqui -->
+                    <div id="modalFormBody"></div>
+                    <div class="flex justify-end space-x-3 pt-4 border-t mt-4">
+                        <button type="button" onclick="closeModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-semibold py-2 px-4 rounded-lg transition duration-150">Cancelar</button>
+                        <button type="submit" id="modalSubmitBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition duration-150">Salvar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Firebase Imports -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, onSnapshot, doc, setDoc, updateDoc, deleteDoc, query, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        
+        // Ativa o log de debug do Firestore
+        setLogLevel('Debug');
+
+        // Variáveis Globais (Disponíveis em window)
+        window.firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        window.appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        window.initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        
+        window.db = null;
+        window.auth = null;
+        window.userId = null;
+        window.clientsData = [];
+        window.selectedClient = null; // O Cliente atualmente em visualização
+        window.hasAttemptedSeed = false; // Flag para garantir que a seed só é tentada uma vez
+        
+        // Constantes do Firestore
+        const PUBLIC_COLLECTION_PATH = `/artifacts/${window.appId}/public/data/clients`;
+
+        // Função de Inicialização do Firebase e Autenticação
+        async function initializeFirebase() {
+            try {
+                const app = initializeApp(window.firebaseConfig);
+                window.db = getFirestore(app);
+                window.auth = getAuth(app);
+
+                const authStatusEl = document.getElementById('authStatus');
+                const userIdDisplayEl = document.getElementById('userIdDisplay');
+
+                // Autenticação
+                onAuthStateChanged(window.auth, async (user) => {
+                    if (user) {
+                        window.userId = user.uid;
+                        authStatusEl.textContent = 'Status de Autenticação: Conectado';
+                        userIdDisplayEl.textContent = 'ID do Usuário: ' + window.userId;
+                        startDataListener();
+                    } else {
+                        // Tenta autenticar
+                        try {
+                            if (window.initialAuthToken) {
+                                await signInWithCustomToken(window.auth, window.initialAuthToken);
+                            } else {
+                                await signInAnonymously(window.auth);
+                            }
+                        } catch (error) {
+                            console.error("Erro na autenticação:", error);
+                            authStatusEl.textContent = 'Status de Autenticação: Erro';
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Erro ao inicializar Firebase:", error);
+                document.getElementById('loadingIndicator').textContent = 'Erro ao carregar o banco de dados.';
+            }
+        }
+        
+        // ----------------------------------------------------------------------
+        // LÓGICA DE SEEDING DE DADOS DE EXEMPLO
+        // ----------------------------------------------------------------------
+        async function seedInitialData() {
+            if (!window.db) return;
+
+            const sampleClients = [
+                {
+                    id: 'sample-client-1',
+                    name: 'Cliente 1 - Matriz e Filial (Exemplo)',
+                    stores: [
+                        {
+                            storeId: crypto.randomUUID(),
+                            name: 'Loja 1 (Matriz)',
+                            details: [
+                                { key: 'IP Servidor Proxmox', value: '192.168.1.10', type: 'text' },
+                                { key: 'IP Pfsense', value: '192.168.1.1', type: 'text' },
+                                { key: 'Servidor Balança/PCPonto', value: 'Servidor Dell PowerEdge - Sala do CPD', type: 'text' }
+                            ]
+                        },
+                        {
+                            storeId: crypto.randomUUID(),
+                            name: 'Loja 2 (Filial)',
+                            details: [
+                                { key: 'IP Servidor Proxmox', value: '10.0.0.20', type: 'text' },
+                                { key: 'IP Pfsense', value: '10.0.0.1', type: 'text' },
+                                { key: 'Observações', value: 'Acesso via VPN Site-to-Site.', type: 'text' }
+                            ]
+                        }
+                    ],
+                    createdAt: new Date(),
+                },
+                {
+                    id: 'sample-client-2',
+                    name: 'Cliente 2 - Regional (Exemplo)',
+                    stores: [
+                        {
+                            storeId: crypto.randomUUID(),
+                            name: 'Loja A',
+                            details: [
+                                { key: 'IP Servidor Proxmox', value: '172.16.1.50', type: 'text' },
+                                { key: 'Servidor Balança/PCPonto', value: 'RPI4 rodando Ubuntu', type: 'text' }
+                            ]
+                        },
+                        {
+                            storeId: crypto.randomUUID(),
+                            name: 'Loja B',
+                            details: [
+                                { key: 'IP Servidor Proxmox', value: '172.16.1.60', type: 'text' },
+                                { key: 'Observações', value: 'Precisa atualizar a firmware do Pfsense.', type: 'text' }
+                            ]
+                        }
+                    ],
+                    createdAt: new Date(new Date().getTime() - 1000), // Para ordenar diferente
+                },
+                {
+                    id: 'sample-client-3',
+                    name: 'Cliente 3 - Simples (Exemplo)',
+                    stores: [
+                        {
+                            storeId: crypto.randomUUID(),
+                            name: 'Loja Única',
+                            details: [
+                                { key: 'IP Pfsense', value: '192.168.0.1', type: 'text' },
+                                { key: 'Link Backup', value: '4G Claro (contato: João)', type: 'text' },
+                                { key: 'Foto do Rack', value: 'https://placehold.co/400x200/5C6BC0/FFFFFF?text=Foto+do+Rack', type: 'image_url' }
+                            ]
+                        }
+                    ],
+                    createdAt: new Date(new Date().getTime() - 2000), // Para ordenar diferente
+                }
+            ];
+
+            console.log("Iniciando o seeding de dados de exemplo...");
+
+            for (const client of sampleClients) {
+                const clientRef = doc(window.db, PUBLIC_COLLECTION_PATH, client.id);
+                try {
+                    // setDoc é usado para garantir que os dados sejam criados com o ID específico se não existirem
+                    await setDoc(clientRef, client, { merge: false });
+                } catch (error) {
+                    console.error(`Erro ao semear o cliente ${client.name}:`, error);
+                }
+            }
+            showNotification('Dados de exemplo criados com sucesso!', 'info');
+            console.log("Seeding de dados de exemplo concluído.");
+        }
+
+        // ----------------------------------------------------------------------
+        // LÓGICA DE DADOS (CRUD - FIREBASE)
+        // ----------------------------------------------------------------------
+
+        // 1. Ouvir Dados em Tempo Real (Clientes)
+        function startDataListener() {
+            if (!window.db) return;
+
+            const clientsCol = collection(window.db, PUBLIC_COLLECTION_PATH);
+            const clientsQuery = query(clientsCol); // Não usa orderBy
+
+            onSnapshot(clientsQuery, (snapshot) => {
+                const newClientsData = [];
+                snapshot.forEach(doc => {
+                    const data = doc.data();
+                    newClientsData.push({
+                        id: doc.id,
+                        name: data.name,
+                        stores: data.stores || [],
+                        createdAt: data.createdAt ? data.createdAt.toDate() : new Date()
+                    });
+                });
+                
+                // Ordena os clientes localmente pelo nome (se necessário)
+                newClientsData.sort((a, b) => a.name.localeCompare(b.name));
+
+                window.clientsData = newClientsData;
+                
+                document.getElementById('loadingIndicator').classList.add('hidden'); 
+                
+                // Lógica de Seeding de Exemplo: Executa se estiver vazio e ainda não tentou.
+                if (newClientsData.length === 0 && !window.hasAttemptedSeed) {
+                    window.hasAttemptedSeed = true;
+                    seedInitialData();
+                    document.getElementById('loadingIndicator').textContent = 'Tentando criar dados de exemplo...';
+                    document.getElementById('loadingIndicator').classList.remove('hidden');
+                } else if (newClientsData.length > 0) {
+                     // Verifica se o cliente selecionado ainda existe
+                    if (window.selectedClient) {
+                        window.selectedClient = window.clientsData.find(c => c.id === window.selectedClient.id);
+                    }
+                    renderClientsList();
+                    if (window.selectedClient) {
+                        renderSelectedClientDetails(window.selectedClient.id);
+                    } else {
+                        if (newClientsData.length === 0) {
+                            document.getElementById('emptyMessage').classList.remove('hidden');
+                        }
+                    }
+                }
+                
+                // Caso a seed demore um pouco, o loading fica visível.
+                if (newClientsData.length === 0 && window.hasAttemptedSeed) {
+                    document.getElementById('emptyMessage').classList.add('hidden');
+                } else if (newClientsData.length === 0) {
+                    document.getElementById('emptyMessage').classList.remove('hidden');
+                }
+            }, (error) => {
+                console.error("Erro ao ouvir dados do Firestore:", error);
+                document.getElementById('loadingIndicator').textContent = 'Erro ao carregar a lista de clientes.';
+            });
+        }
+
+        // 2. Adicionar/Editar Cliente
+        window.saveClient = async (clientId, name) => {
+            if (!name || !window.db) return;
+
+            const clientRef = doc(window.db, PUBLIC_COLLECTION_PATH, clientId || crypto.randomUUID());
+            
+            // Se for um novo cliente, inicia com uma lista vazia de lojas.
+            const existingClient = window.clientsData.find(c => c.id === clientId);
+            
+            const clientData = {
+                name: name,
+                stores: existingClient ? existingClient.stores : [],
+                createdAt: new Date(),
+            };
+
+            try {
+                await setDoc(clientRef, clientData, { merge: true });
+                console.log("Cliente salvo com sucesso!");
+                closeModal();
+            } catch (error) {
+                console.error("Erro ao salvar cliente:", error);
+                showNotification('Erro ao salvar cliente. Verifique o console.', 'error');
+            }
+        };
+
+        // 3. Deletar Cliente
+        window.deleteClient = async (clientId) => {
+            if (!window.db) return;
+
+            // Substitui alert() por um modal/confirmação customizada (aqui simulamos a lógica)
+            if (!confirm('Tem certeza que deseja deletar este cliente e todas as suas lojas/documentos?')) {
+                return;
+            }
+
+            try {
+                await deleteDoc(doc(window.db, PUBLIC_COLLECTION_PATH, clientId));
+                console.log("Cliente deletado com sucesso!");
+                window.selectedClient = null;
+                document.getElementById('storeDetailsContainer').classList.add('hidden');
+                document.getElementById('initialMessage').classList.remove('hidden');
+                showNotification('Cliente deletado com sucesso!', 'success');
+            } catch (error) {
+                console.error("Erro ao deletar cliente:", error);
+                showNotification('Erro ao deletar cliente. Verifique o console.', 'error');
+            }
+        };
+
+        // 4. Adicionar/Editar Loja/Detalhe (Atualiza o documento do cliente inteiro)
+        window.updateClientStores = async (clientId, newStoresArray) => {
+            if (!window.db) return;
+            try {
+                const clientRef = doc(window.db, PUBLIC_COLLECTION_PATH, clientId);
+                await updateDoc(clientRef, { stores: newStoresArray });
+                console.log("Lojas do cliente atualizadas com sucesso.");
+                closeModal();
+                showNotification('Alteração salva!', 'success');
+            } catch (error) {
+                console.error("Erro ao atualizar lojas do cliente:", error);
+                showNotification('Erro ao salvar loja/detalhe. Verifique o console.', 'error');
+            }
+        };
+
+
+        // ----------------------------------------------------------------------
+        // LÓGICA DE INTERFACE (UI)
+        // ----------------------------------------------------------------------
+
+        // Renderiza a lista de clientes na lateral
+        function renderClientsList() {
+            const listEl = document.getElementById('clientsList');
+            listEl.innerHTML = '';
+            
+            document.getElementById('loadingIndicator').classList.add('hidden');
+            document.getElementById('emptyMessage').classList.toggle('hidden', window.clientsData.length > 0);
+
+            window.clientsData.forEach(client => {
+                const isSelected = window.selectedClient && window.selectedClient.id === client.id;
+                
+                const clientDiv = document.createElement('div');
+                clientDiv.className = `client-header p-3 rounded-xl cursor-pointer flex justify-between items-center transition duration-150 ${isSelected ? 'bg-indigo-100 border border-indigo-500 shadow-md' : 'bg-white border border-gray-200 hover:bg-indigo-50'}`;
+                clientDiv.onclick = () => renderSelectedClientDetails(client.id);
+                
+                clientDiv.innerHTML = `
+                    <div class="flex flex-col">
+                        <span class="font-semibold text-gray-700">${client.name}</span>
+                        <span class="text-xs text-gray-500">${client.stores.length} Loja(s)</span>
+                    </div>
+                    <div class="flex space-x-2">
+                        <button onclick="event.stopPropagation(); openEditClientModal('${client.id}', '${client.name}')" class="text-indigo-500 hover:text-indigo-700 p-1 rounded-full hover:bg-indigo-200 transition duration-150" title="Editar Cliente">
+                             <i data-lucide="pencil" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="event.stopPropagation(); deleteClient('${client.id}')" class="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-200 transition duration-150" title="Excluir Cliente">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                `;
+                listEl.appendChild(clientDiv);
+            });
+            // Atualiza ícones Lucide (importante após adicionar HTML)
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        // Renderiza os detalhes do Cliente e suas Lojas
+        window.renderSelectedClientDetails = (clientId) => {
+            const client = window.clientsData.find(c => c.id === clientId);
+            
+            if (!client) {
+                // Se o cliente foi deletado
+                document.getElementById('storeDetailsContainer').classList.add('hidden');
+                document.getElementById('initialMessage').classList.remove('hidden');
+                window.selectedClient = null;
+                renderClientsList();
+                return;
+            }
+
+            window.selectedClient = client;
+            renderClientsList(); // Atualiza a lista para destacar o cliente selecionado
+            
+            document.getElementById('initialMessage').classList.add('hidden');
+            document.getElementById('storeDetailsContainer').classList.remove('hidden');
+            document.getElementById('clientNameDisplay').textContent = client.name;
+            document.getElementById('addStoreBtn').onclick = () => openAddStoreModal(client.id);
+
+            const storesListEl = document.getElementById('storesListContainer');
+            storesListEl.innerHTML = '';
+
+            if (client.stores.length === 0) {
+                storesListEl.innerHTML = '<p class="text-center text-gray-400 p-8">Nenhuma loja cadastrada para este cliente. Adicione uma!</p>';
+                return;
+            }
+
+            client.stores.forEach((store) => {
+                const storeDiv = document.createElement('div');
+                storeDiv.className = 'bg-gray-50 p-4 rounded-xl shadow-inner border border-gray-100';
+                
+                // HTML da Loja (Acordeão)
+                storeDiv.innerHTML = `
+                    <!-- Cabeçalho da Loja -->
+                    <div class="flex justify-between items-center cursor-pointer mb-3" onclick="toggleAccordion('store-content-${store.storeId}')">
+                        <h3 class="text-lg font-semibold text-gray-700 flex items-center">
+                            <i data-lucide="chevron-down" class="w-5 h-5 mr-2 transition-transform duration-300" id="icon-store-content-${store.storeId}"></i>
+                            ${store.name}
+                        </h3>
+                        <div class="flex space-x-2">
+                            <button onclick="event.stopPropagation(); openAddDetailModal('${client.id}', '${store.storeId}')" class="text-green-500 hover:text-green-700 p-1 rounded-full hover:bg-green-200 transition duration-150" title="Adicionar Detalhe">
+                                <i data-lucide="file-plus-2" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="event.stopPropagation(); openEditStoreModal('${client.id}', '${store.storeId}', '${store.name}')" class="text-indigo-500 hover:text-indigo-700 p-1 rounded-full hover:bg-indigo-200 transition duration-150" title="Editar Nome da Loja">
+                                <i data-lucide="pencil" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="event.stopPropagation(); deleteStore('${client.id}', '${store.storeId}')" class="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-200 transition duration-150" title="Excluir Loja">
+                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Conteúdo da Loja (Detalhes) -->
+                    <div id="store-content-${store.storeId}" class="space-y-3 pl-4 border-l border-gray-200 hidden">
+                        ${renderStoreDetails(client.id, store)}
+                    </div>
+                `;
+                storesListEl.appendChild(storeDiv);
+            });
+            // Adicionado aqui para renderizar ícones dinâmicos nas lojas e detalhes.
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        };
+        
+        // Renderiza os Detalhes da Loja
+        function renderStoreDetails(clientId, store) {
+            if (store.details.length === 0) {
+                return '<p class="text-sm text-gray-400 p-2 text-center">Nenhum detalhe cadastrado. Adicione um para começar!</p>';
+            }
+
+            return store.details.map(detail => {
+                const isImage = detail.type === 'image_url';
+                // Assegura que o valor do detalhe seja escapado corretamente para o onclick
+                const escapedValue = detail.value.replace(/'/g, "\\'");
+                
+                return `
+                    <div class="flex justify-between items-start bg-white p-3 rounded-lg border border-gray-100 shadow-sm">
+                        <div class="flex-grow">
+                            <p class="font-medium text-sm text-indigo-600 mb-1">${detail.key}:</p>
+                            ${isImage 
+                                ? `<a href="${detail.value}" target="_blank" class="text-sm text-blue-500 hover:underline flex items-center">
+                                    <i data-lucide="external-link" class="w-4 h-4 mr-1"></i>
+                                    Ver Imagem/URL
+                                </a>`
+                                : `<p class="text-sm text-gray-700 whitespace-pre-wrap">${detail.value}</p>`
+                            }
+                        </div>
+                        <div class="flex space-x-1 ml-4">
+                            <button onclick="event.stopPropagation(); openEditDetailModal('${clientId}', '${store.storeId}', '${detail.key}', '${escapedValue}', '${detail.type}')" class="text-gray-500 hover:text-gray-700 p-1 rounded-full hover:bg-gray-200 transition duration-150" title="Editar Detalhe">
+                                <i data-lucide="pencil" class="w-4 h-4"></i>
+                            </button>
+                            <button onclick="event.stopPropagation(); deleteDetail('${clientId}', '${store.storeId}', '${detail.key}')" class="text-red-500 hover:text-red-700 p-1 rounded-full hover:bg-red-200 transition duration-150" title="Excluir Detalhe">
+                                <i data-lucide="x-circle" class="w-4 h-4"></i>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Função para mostrar/esconder o conteúdo do acordeão
+        window.toggleAccordion = (contentId) => {
+            const contentEl = document.getElementById(contentId);
+            const iconEl = document.getElementById(`icon-${contentId}`);
+            if (contentEl) {
+                const isHidden = contentEl.classList.toggle('hidden');
+                if (iconEl) {
+                    // Rotaciona o ícone 90 graus
+                    iconEl.style.transform = isHidden ? 'rotate(0deg)' : 'rotate(90deg)';
+                }
+            }
+        };
+
+
+        // ----------------------------------------------------------------------
+        // LÓGICA DO MODAL GENÉRICO
+        // ----------------------------------------------------------------------
+
+        const modalOverlay = document.getElementById('modalOverlay');
+        const modalContent = document.getElementById('modalContent');
+        const modalTitle = document.getElementById('modalTitle');
+        const modalFormBody = document.getElementById('modalFormBody');
+        const modalForm = document.getElementById('modalForm');
+
+        function openModal(title, bodyHtml, onSubmitCallback) {
+            modalTitle.textContent = title;
+            modalFormBody.innerHTML = bodyHtml;
+            modalForm.onsubmit = (e) => {
+                e.preventDefault();
+                onSubmitCallback(e);
+            };
+            modalOverlay.classList.remove('hidden');
+            modalOverlay.classList.add('flex');
+            // Animação de entrada
+            setTimeout(() => {
+                modalContent.classList.remove('scale-95', 'opacity-0');
+                modalContent.classList.add('scale-100', 'opacity-100');
+            }, 10);
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        }
+
+        window.closeModal = () => {
+            modalContent.classList.remove('scale-100', 'opacity-100');
+            modalContent.classList.add('scale-95', 'opacity-0');
+            // Espera a transição terminar antes de esconder
+            setTimeout(() => {
+                modalOverlay.classList.remove('flex');
+                modalOverlay.classList.add('hidden');
+                modalFormBody.innerHTML = ''; // Limpa o corpo do formulário
+                modalForm.onsubmit = null;
+            }, 300);
+        };
+        
+        // ----------------------------------------------------------------------
+        // MODALS ESPECÍFICOS (CLIENTE)
+        // ----------------------------------------------------------------------
+
+        document.getElementById('addClientBtn').onclick = () => openEditClientModal(null, '');
+
+        window.openEditClientModal = (clientId, currentName) => {
+            const isEditing = !!clientId;
+            const title = isEditing ? 'Editar Cliente' : 'Adicionar Novo Cliente';
+            const body = `
+                <input type="hidden" id="clientId" value="${clientId || ''}">
+                <label for="clientName" class="block text-sm font-medium text-gray-700">Nome do Cliente</label>
+                <input type="text" id="clientName" value="${currentName}" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border" placeholder="Ex: Supermercado Central">
+            `;
+            
+            openModal(title, body, (e) => {
+                const name = document.getElementById('clientName').value.trim();
+                const id = document.getElementById('clientId').value || crypto.randomUUID();
+                if (name) {
+                    window.saveClient(id, name);
+                }
+            });
+        };
+
+        // ----------------------------------------------------------------------
+        // MODALS ESPECÍFICOS (LOJA)
+        // ----------------------------------------------------------------------
+
+        window.openAddStoreModal = (clientId) => {
+            const body = `
+                <input type="hidden" id="modalClientId" value="${clientId}">
+                <label for="storeName" class="block text-sm font-medium text-gray-700">Nome da Nova Loja</label>
+                <input type="text" id="storeName" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border" placeholder="Ex: Loja 1 Matriz">
+            `;
+            
+            openModal('Adicionar Nova Loja', body, (e) => {
+                const storeName = document.getElementById('storeName').value.trim();
+                const currentClient = window.clientsData.find(c => c.id === clientId);
+                if (storeName && currentClient) {
+                    const newStore = {
+                        storeId: crypto.randomUUID(),
+                        name: storeName,
+                        details: []
+                    };
+                    const newStores = [...currentClient.stores, newStore];
+                    window.updateClientStores(clientId, newStores);
+                }
+            });
+        };
+
+        window.openEditStoreModal = (clientId, storeId, currentName) => {
+            const body = `
+                <input type="hidden" id="modalClientId" value="${clientId}">
+                <input type="hidden" id="modalStoreId" value="${storeId}">
+                <label for="storeName" class="block text-sm font-medium text-gray-700">Novo Nome da Loja</label>
+                <input type="text" id="storeName" value="${currentName}" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border" placeholder="Ex: Loja 1 Matriz">
+            `;
+            
+            openModal('Editar Nome da Loja', body, (e) => {
+                const storeName = document.getElementById('storeName').value.trim();
+                const currentClient = window.clientsData.find(c => c.id === clientId);
+                if (storeName && currentClient) {
+                    const newStores = currentClient.stores.map(s => s.storeId === storeId ? { ...s, name: storeName } : s);
+                    window.updateClientStores(clientId, newStores);
+                }
+            });
+        };
+
+        window.deleteStore = (clientId, storeId) => {
+            if (!confirm('Tem certeza que deseja deletar esta loja e todos os seus detalhes?')) {
+                return;
+            }
+            const currentClient = window.clientsData.find(c => c.id === clientId);
+            if (currentClient) {
+                const newStores = currentClient.stores.filter(s => s.storeId !== storeId);
+                window.updateClientStores(clientId, newStores);
+            }
+        };
+
+        // ----------------------------------------------------------------------
+        // MODALS ESPECÍFICOS (DETALHES)
+        // ----------------------------------------------------------------------
+
+        window.openAddDetailModal = (clientId, storeId) => {
+            openEditDetailModal(clientId, storeId, '', '', 'text');
+        };
+
+        window.openEditDetailModal = (clientId, storeId, currentKey, currentKeyValue, currentType) => {
+            const isEditing = !!currentKey;
+            const title = isEditing ? `Editar Detalhe: ${currentKey}` : 'Adicionar Novo Detalhe';
+            
+            const detailKeyDisabled = isEditing ? 'disabled' : '';
+
+            // Desescapa aspas simples do valor para exibir no textarea
+            const unescapedKeyValue = currentKeyValue.replace(/\\'/g, "'");
+
+            const body = `
+                <input type="hidden" id="modalClientId" value="${clientId}">
+                <input type="hidden" id="modalStoreId" value="${storeId}">
+                <input type="hidden" id="modalOriginalKey" value="${currentKey}">
+
+                <label for="detailKey" class="block text-sm font-medium text-gray-700">Tipo de Informação (Chave)</label>
+                <input type="text" id="detailKey" value="${currentKey}" ${detailKeyDisabled} required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border ${isEditing ? 'bg-gray-100' : ''}" placeholder="Ex: IP do Servidor Balança">
+
+                <label for="detailType" class="block text-sm font-medium text-gray-700 mt-3">Formato do Conteúdo</label>
+                <select id="detailType" class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border">
+                    <option value="text" ${currentType === 'text' ? 'selected' : ''}>Texto Livre (IPs, senhas, notas)</option>
+                    <option value="image_url" ${currentType === 'image_url' ? 'selected' : ''}>URL de Imagem/Foto</option>
+                </select>
+
+                <label for="detailValue" class="block text-sm font-medium text-gray-700 mt-3">Valor/Conteúdo</label>
+                <textarea id="detailValue" required class="mt-1 block w-full rounded-lg border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 p-2 border resize-y h-32" placeholder="Digite o valor ou cole a URL da imagem.">${unescapedKeyValue}</textarea>
+            `;
+
+            openModal(title, body, (e) => {
+                const key = document.getElementById('detailKey').value.trim();
+                const value = document.getElementById('detailValue').value.trim();
+                const type = document.getElementById('detailType').value;
+                const originalKey = document.getElementById('modalOriginalKey').value;
+
+                if (!key || !value) {
+                    showNotification('Preencha a chave e o valor do detalhe.', 'warning');
+                    return;
+                }
+
+                const currentClient = window.clientsData.find(c => c.id === clientId);
+                if (currentClient) {
+                    const store = currentClient.stores.find(s => s.storeId === storeId);
+                    if (store) {
+                        let newDetails;
+                        if (isEditing) {
+                            // Edição: Localiza e substitui o detalhe
+                            newDetails = store.details.map(d => {
+                                // Usa a chave original para encontrar, mas salva com a nova (que é a mesma se estiver desabilitada)
+                                return d.key === originalKey 
+                                    ? { key: key, value: value, type: type } 
+                                    : d;
+                            });
+                        } else {
+                            // Adição: Adiciona novo detalhe, verificando duplicação
+                            if (store.details.some(d => d.key === key)) {
+                                showNotification(`O tipo de informação "${key}" já existe nesta loja.`, 'warning');
+                                return;
+                            }
+                            newDetails = [...store.details, { key: key, value: value, type: type }];
+                        }
+
+                        // Cria a nova lista de lojas com a loja modificada
+                        const newStores = currentClient.stores.map(s => 
+                            s.storeId === storeId ? { ...s, details: newDetails } : s
+                        );
+
+                        window.updateClientStores(clientId, newStores);
+                    }
+                }
+            });
+        };
+
+        window.deleteDetail = (clientId, storeId, detailKey) => {
+            if (!confirm(`Tem certeza que deseja deletar o detalhe "${detailKey}"?`)) {
+                return;
+            }
+            
+            const currentClient = window.clientsData.find(c => c.id === clientId);
+            if (currentClient) {
+                const store = currentClient.stores.find(s => s.storeId === storeId);
+                if (store) {
+                    const newDetails = store.details.filter(d => d.key !== detailKey);
+                    
+                    const newStores = currentClient.stores.map(s => 
+                        s.storeId === storeId ? { ...s, details: newDetails } : s
+                    );
+
+                    window.updateClientStores(clientId, newStores);
+                }
+            }
+        };
+
+
+        // ----------------------------------------------------------------------
+        // UTILITÁRIOS
+        // ----------------------------------------------------------------------
+
+        // Notificação simples (substituindo alert() e confirm())
+        function showNotification(message, type = 'info') {
+            const colors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                warning: 'bg-yellow-500',
+                info: 'bg-blue-500'
+            };
+            const notifEl = document.createElement('div');
+            notifEl.className = `fixed bottom-4 right-4 p-4 rounded-xl shadow-lg text-white font-semibold ${colors[type]} z-50`;
+            notifEl.textContent = message;
+            document.body.appendChild(notifEl);
+            setTimeout(() => {
+                notifEl.remove();
+            }, 3000);
+        }
+
+        // Função para simular o confirm nativo, mas aqui é só para evitar o alerta
+        function confirm(message) {
+            return window.confirm(message); // mantido window.confirm pois não posso criar um modal customizado complexo aqui
+        }
+
+
+        // Inicializa o aplicativo ao carregar a página
+        window.onload = initializeFirebase;
+    </script>
+</body>
+</html>
+
+
